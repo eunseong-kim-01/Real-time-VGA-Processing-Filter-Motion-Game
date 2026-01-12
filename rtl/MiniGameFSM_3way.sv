@@ -6,13 +6,11 @@ module MiniGameFSM_4way (
     input logic start,
     input logic vsync,
 
-    // Input from ColorDetector
     input logic detect_LT,
     input logic detect_RT,
     input logic detect_LB,
     input logic detect_RB,
 
-    // Output to Overlay
     output logic [2:0] fsm_state,    // IDLE/READY/PLAY/ROUND_END/SCOREBOARD
     output logic [1:0] region,       // Current target region
     output logic [1:0] result_type,  // SUCCESS/FAIL
@@ -21,9 +19,6 @@ module MiniGameFSM_4way (
     output logic [4:0] round_result  // Result of each round (bit-wise)
 );
 
-    //==========================================================
-    // Type Definitions
-    //==========================================================
     typedef enum logic [2:0] {
         IDLE       = 3'b000,
         READY      = 3'b001,
@@ -38,37 +33,27 @@ module MiniGameFSM_4way (
         RES_FAIL    = 2'b10
     } result_t;
 
-    //==========================================================
-    // Internal Registers
-    //==========================================================
+ 
     state_t state, next_state;
 
-    // Timers (Frame-based)
     logic [7:0] ready_timer;
     logic [7:0] play_timer;
     logic [7:0] round_end_timer;
     logic [9:0] score_timer;
 
-    // PLAY state counters
     logic [7:0] hold_cnt;     // Frames held for correct answer
     logic [3:0] skip_frames;  // Initial stabilization frame skip
 
-    // Threshold for valid answer (approx 1.5s @ 60fps)
     localparam int HOLD_THRESHOLD = 45; 
 
-    // Detect signals (frame-latched)
     logic LT_d, RT_d, LB_d, RB_d;
 
-    // LFSR for random region
     logic [7:0] lfsr;
 
-    // Internal logic
     logic correct;
 
-    //==========================================================
-    // ⭐ vsync 2-stage Synchronizer & Rising Edge Detection
-    // This part ensures CDC reliability by preventing metastability.
-    //==========================================================
+    // vsync 2-stage Synchronizer & Rising Edge Detection
+    // CDC reliability - prevent metastability
     logic vs_sync0, vs_sync1, vs_rise;
 
     always_ff @(posedge clk or posedge reset) begin
@@ -77,16 +62,13 @@ module MiniGameFSM_4way (
             vs_sync1 <= 1'b0;
             vs_rise  <= 1'b0;
         end else begin
-            vs_sync0 <= vsync;    // 1st stage: Captures asynchronous vsync
-            vs_sync1 <= vs_sync0; // 2nd stage: Stabilizes the signal
-            // Generates a pulse on the rising edge of the synchronized signal
+            vs_sync0 <= vsync;    
+            vs_sync1 <= vs_sync0; 
             vs_rise  <= vs_sync0 & ~vs_sync1; 
         end
     end
 
-    //==========================================================
-    // Detect Signal Latching (Sync with vs_rise)
-    //==========================================================
+    // Detect Signal Latch
     always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             LT_d <= 0; RT_d <= 0; LB_d <= 0; RB_d <= 0;
@@ -98,17 +80,13 @@ module MiniGameFSM_4way (
         end
     end
 
-    //==========================================================
-    // LFSR (Random Region Generator)
-    //==========================================================
+    // Random Region Generate
     always_ff @(posedge clk or posedge reset) begin
         if (reset) lfsr <= 8'hA5;
         else if (vs_rise) lfsr <= {lfsr[6:0], ^(lfsr & 8'hB8)};
     end
 
-    //==========================================================
-    // Correct Answer Logic (Combinational)
-    //==========================================================
+    // Correct Answer 
     always_comb begin
         correct = 1'b0; 
         case (region)
@@ -119,17 +97,12 @@ module MiniGameFSM_4way (
         endcase
     end
 
-    //==========================================================
-    // FSM: State Register
-    //==========================================================
+    // FSM
     always_ff @(posedge clk or posedge reset) begin
         if (reset) state <= IDLE;
         else state <= next_state;
     end
 
-    //==========================================================
-    // FSM: Next State Logic
-    //==========================================================
     always_comb begin
         next_state = state;
         case (state)
@@ -151,9 +124,6 @@ module MiniGameFSM_4way (
         endcase
     end
 
-    //==========================================================
-    // FSM: Sequential Logic (Timers & Scores)
-    //==========================================================
     always_ff @(posedge clk or posedge reset) begin
         if (reset) begin
             {ready_timer, play_timer, round_end_timer, score_timer} <= 0;
